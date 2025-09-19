@@ -4,7 +4,7 @@ import google.generativeai as genai
 import PyPDF2
 from io import BytesIO
 import datetime
-import traceback # Adicionado para melhor depuração
+import traceback
 
 # --- CONFIGURAÇÃO INICIAL ---
 st.set_page_config(
@@ -13,23 +13,24 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- VALIDAÇÃO DA CHAVE DA API (CÓDIGO MELHORADO) ---
-# Verifica se a chave da API foi configurada nos Secrets do Streamlit
-if 'GEMINI_API_KEY' in st.secrets:
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+# --- VALIDAÇÃO DA CHAVE DA API (VERSÃO FINAL E MAIS SEGURA) ---
+# Usamos o método .get() que é mais seguro e não causa KeyError
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
+
+if GEMINI_API_KEY:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
-        # st.sidebar.success("API Key configurada com sucesso!")
     except Exception as e:
-        st.error("Ocorreu um erro ao configurar a API do Gemini. Verifique se a sua chave é válida.")
-        st.error(f"Erro: {e}")
+        st.error(f"Ocorreu um erro ao configurar a API do Gemini. Verifique se a sua chave é válida. Erro: {e}")
         st.stop()
 else:
-    # Se a chave não estiver nos Secrets, exibe uma mensagem clara e para a execução.
-    st.error("Chave da API do Gemini não encontrada!")
-    st.error("Por favor, adicione a sua GEMINI_API_KEY nos 'Secrets' da sua aplicação no Streamlit Cloud.")
-    st.info("No menu 'Manage app' > Settings > Secrets, adicione: GEMINI_API_KEY='SUA_CHAVE_AQUI'")
-    st.stop() # Para a execução da aplicação até que a chave seja configurada.
+    st.error("Chave da API do Gemini não foi encontrada!")
+    st.error("Por favor, adicione sua GEMINI_API_KEY nos 'Secrets' da aplicação no Streamlit Cloud.")
+    st.info("No menu 'Manage app' > Settings > Secrets, adicione a linha: GEMINI_API_KEY='SUA_CHAVE_AQUI'")
+    st.stop()
+
+# --- FUNÇÕES CORE ---
+# ... (o resto do seu código continua exatamente como estava) ...
 
 # --- FUNÇÕES CORE ---
 
