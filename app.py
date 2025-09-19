@@ -29,8 +29,8 @@ if not GITHUB_TOKEN:
     st.stop()
 
 # --- CONFIGURAÇÃO DO GITHUB (VOCÊ PRECISA EDITAR ISSO) ---
-REPO_OWNER = "SEU_NOME_DE_USUARIO_DO_GITHUB"  # Ex: "fulanodasilva"
-REPO_NAME = "NOME_DO_SEU_REPOSITORIO"       # Ex: "painel-gestora"
+REPO_OWNER = "NathanFarinha10"  # Ex: "fulanodasilva"
+REPO_NAME = "painel-gestora"       # Ex: "painel-gestora"
 FILE_PATH = "market_intelligence_db.csv"
 GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
 
