@@ -4,6 +4,7 @@ import google.generativeai as genai
 import PyPDF2
 from io import BytesIO
 import datetime
+import traceback # Adicionado para melhor depuração
 
 # --- CONFIGURAÇÃO INICIAL ---
 st.set_page_config(
@@ -12,29 +13,36 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CHAVE DA API ---
-# Para o deploy no Streamlit Cloud, adicione a chave como um "Secret"
-# st.secrets['GEMINI_API_KEY']
-try:
+# --- VALIDAÇÃO DA CHAVE DA API (CÓDIGO MELHORADO) ---
+# Verifica se a chave da API foi configurada nos Secrets do Streamlit
+if 'GEMINI_API_KEY' in st.secrets:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=GEMINI_API_KEY)
-except FileNotFoundError:
-    # Este bloco é para rodar localmente, caso você crie um arquivo secrets.toml
-    st.warning("Arquivo de secrets não encontrado. Crie um arquivo .streamlit/secrets.toml para desenvolvimento local.")
-    st.stop()
-except KeyError:
-    st.error("Chave da API do Gemini não encontrada. Configure o 'GEMINI_API_KEY' nos Secrets do Streamlit Cloud.")
-    st.stop()
-
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        # st.sidebar.success("API Key configurada com sucesso!")
+    except Exception as e:
+        st.error("Ocorreu um erro ao configurar a API do Gemini. Verifique se a sua chave é válida.")
+        st.error(f"Erro: {e}")
+        st.stop()
+else:
+    # Se a chave não estiver nos Secrets, exibe uma mensagem clara e para a execução.
+    st.error("Chave da API do Gemini não encontrada!")
+    st.error("Por favor, adicione a sua GEMINI_API_KEY nos 'Secrets' da sua aplicação no Streamlit Cloud.")
+    st.info("No menu 'Manage app' > Settings > Secrets, adicione: GEMINI_API_KEY='SUA_CHAVE_AQUI'")
+    st.stop() # Para a execução da aplicação até que a chave seja configurada.
 
 # --- FUNÇÕES CORE ---
 
 def extrair_texto_pdf(arquivo_pdf):
     """Extrai texto de um arquivo PDF carregado pelo Streamlit."""
     texto_completo = ""
-    leitor_pdf = PyPDF2.PdfReader(BytesIO(arquivo_pdf.read()))
-    for pagina in leitor_pdf.pages:
-        texto_completo += pagina.extract_text()
+    try:
+        leitor_pdf = PyPDF2.PdfReader(BytesIO(arquivo_pdf.read()))
+        for pagina in leitor_pdf.pages:
+            texto_completo += pagina.extract_text() or ""
+    except Exception as e:
+        st.error(f"Erro ao ler o arquivo PDF: {e}")
+        return None
     return texto_completo
 
 def extrair_dados_com_ia(texto_pdf):
@@ -45,9 +53,9 @@ def extrair_dados_com_ia(texto_pdf):
     Você é um analista de investimentos sênior. Sua tarefa é analisar o texto de um relatório de mercado e extrair as principais visões de investimento da gestora.
     Para cada visão que identificar, retorne a informação em um formato de lista de dicionários Python.
     Siga estritamente esta estrutura para cada dicionário:
-    {"nome_gestora": "Nome da Gestora", "pais_regiao": "País ou Região analisada", "classe_ativo": "Classe de Ativo principal", "subclasse_ativo": "Se mencionado, a Subclasse do ativo", "visao_sentimento": "Otimista, Neutro ou Pessimista", "tese_principal": "A citação ou resumo conciso que justifica a visão"}
+    {"nome_gestora": "Nome da Gestora", "data_relatorio": "Data ou período do relatório (ex: Setembro 2025)", "pais_regiao": "País ou Região analisada", "classe_ativo": "Classe de Ativo principal", "subclasse_ativo": "Se mencionado, a Subclasse do ativo", "visao_sentimento": "Otimista, Neutro ou Pessimista", "tese_principal": "A citação ou resumo conciso que justifica a visão"}
     
-    Extraia múltiplas visões se houver. Se uma informação como 'subclasse_ativo' não for encontrada, retorne um campo vazio.
+    Extraia múltiplas visões se houver. Se uma informação não for encontrada, retorne um campo vazio ou "não encontrado".
     O texto para análise é o seguinte:
     ---
     {}
@@ -56,14 +64,27 @@ def extrair_dados_com_ia(texto_pdf):
     
     try:
         response = model.generate_content(prompt)
-        # O Gemini pode retornar o texto formatado como markdown, então precisamos limpá-lo.
+        # Limpa a resposta para garantir que seja um formato 'eval' válido
         clean_response = response.text.strip().replace("```python", "").replace("```", "").strip()
-        # Converte a string da resposta em uma lista de dicionários Python real
+        
+        # Tenta converter a string da resposta para uma lista de dicionários
         dados_extraidos = eval(clean_response)
+        
+        # Validação extra: verifica se o resultado é uma lista
+        if not isinstance(dados_extraidos, list):
+            st.warning("A IA não retornou uma lista. Tentando corrigir...")
+            # Se não for uma lista, talvez seja um único dicionário. Colocamos dentro de uma lista.
+            if isinstance(dados_extraidos, dict):
+                return [dados_extraidos]
+            else:
+                return None # Se não for nem lista nem dicionário, falhou.
+
         return dados_extraidos
     except Exception as e:
-        st.error(f"Erro ao chamar a API do Gemini: {e}")
-        st.error(f"Resposta recebida: {response.text}")
+        st.error(f"Erro ao processar a resposta da IA. Verifique o formato retornado.")
+        st.error(f"Detalhes do erro: {e}")
+        st.text_area("Resposta bruta da IA que causou o erro:", response.text, height=200)
+        traceback.print_exc() # Imprime o traceback completo nos logs
         return None
 
 # --- NAVEGAÇÃO E PÁGINAS ---
