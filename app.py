@@ -5,6 +5,8 @@ import PyPDF2
 from io import BytesIO, StringIO
 import datetime
 import json
+import requests
+import base64 
 
 # --- CONFIGURAÇÃO E VALIDAÇÃO DA CHAVE API ---
 st.set_page_config(
@@ -19,6 +21,18 @@ if GEMINI_API_KEY:
 else:
     st.error("Chave da API do Gemini não configurada! Adicione `GEMINI_API_KEY` nos Secrets da aplicação.")
     st.stop()
+
+# Token de Acesso do GitHub
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN")
+if not GITHUB_TOKEN:
+    st.error("Token do GitHub não configurado! Adicione `GITHUB_TOKEN` nos Secrets para a automação funcionar.")
+    st.stop()
+
+# --- CONFIGURAÇÃO DO GITHUB (VOCÊ PRECISA EDITAR ISSO) ---
+REPO_OWNER = "SEU_NOME_DE_USUARIO_DO_GITHUB"  # Ex: "fulanodasilva"
+REPO_NAME = "NOME_DO_SEU_REPOSITORIO"       # Ex: "painel-gestora"
+FILE_PATH = "market_intelligence_db.csv"
+GITHUB_API_URL = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contents/{FILE_PATH}"
 
 # --- FUNÇÕES CORE (REATORADAS) ---
 
@@ -75,6 +89,53 @@ def extrair_dados_com_ia(_texto_pdf):
         return None, "A IA retornou um JSON inválido. Não foi possível decodificar.", response.text
     except Exception as e:
         return None, f"Ocorreu um erro inesperado: {e}", response.text
+
+def update_csv_on_github(novas_linhas_csv):
+    """
+    Função para buscar o CSV no GitHub, adicionar novas linhas e salvar de volta.
+    """
+    headers = {
+        "Authorization": f"token {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # 1. Obter o conteúdo atual do arquivo e seu SHA (obrigatório para atualização)
+    try:
+        response = requests.get(GITHUB_API_URL, headers=headers)
+        response.raise_for_status() # Lança um erro se a requisição falhar (ex: 404 Not Found)
+        
+        file_data = response.json()
+        content_base64 = file_data["content"]
+        sha = file_data["sha"]
+        
+        # 2. Decodificar o conteúdo de Base64 para texto
+        conteudo_atual = base64.b64decode(content_base64).decode("utf-8")
+        
+        # 3. Adicionar as novas linhas ao conteúdo existente
+        conteudo_final = conteudo_atual + "\n" + novas_linhas_csv.strip()
+        
+        # 4. Codificar o novo conteúdo de volta para Base64
+        novo_conteudo_base64 = base64.b64encode(conteudo_final.encode("utf-8")).decode("utf-8")
+        
+        # 5. Preparar os dados para a requisição de atualização (PUT)
+        data = {
+            "message": f"Atualização automática do DB via Streamlit App - {datetime.date.today()}",
+            "content": novo_conteudo_base64,
+            "sha": sha # Informa ao GitHub qual versão do arquivo estamos atualizando
+        }
+        
+        update_response = requests.put(GITHUB_API_URL, headers=headers, json=data)
+        update_response.raise_for_status() # Lança um erro se a atualização falhar
+        
+        return True, "Arquivo atualizado com sucesso no GitHub!"
+        
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 404:
+            return False, f"Erro: Arquivo '{FILE_PATH}' não encontrado. Verifique o caminho e nome do repositório."
+        return False, f"Erro de HTTP ao comunicar com o GitHub: {e}"
+    except Exception as e:
+        return False, f"Ocorreu um erro inesperado na automação: {e}"
+
 # --- NAVEGAÇÃO E PÁGINAS ---
 
 st.sidebar.title("Navegação")
@@ -145,49 +206,43 @@ elif pagina == "Assets View":
                 # **FIM DO BLOCO CORRIGIDO**
 
 elif pagina == "Admin: Processar Relatório":
-    st.title("⚙️ Admin: Extrair Dados de um Novo Relatório")
+    st.title("⚙️ Admin: Extrair Dados e Atualizar a Base")
+
     uploaded_file = st.file_uploader("1. Faça o upload do relatório em PDF", type="pdf")
 
     if uploaded_file is not None:
-        pdf_bytes = uploaded_file.getvalue()
-        texto_pdf = extrair_texto_pdf(pdf_bytes, uploaded_file.name)
-
-        if texto_pdf:
-            st.subheader("2. Análise com Inteligência Artificial")
-            if st.button("Analisar Documento Completo"):
-                with st.spinner("A IA está lendo e analisando o relatório..."):
-                    # A chamada da função agora retorna uma tupla
+        if st.button("Analisar e Salvar no GitHub"):
+            
+            with st.spinner("Lendo o PDF..."):
+                pdf_bytes = uploaded_file.getvalue()
+                texto_pdf = extrair_texto_pdf(pdf_bytes, uploaded_file.name)
+            
+            if texto_pdf:
+                with st.spinner("Analisando com IA e preparando dados..."):
                     dados, erro, resposta_bruta = extrair_dados_com_ia(texto_pdf)
                 
-                # A lógica de UI (exibir erros ou sucesso) fica AQUI, fora da função cacheada
                 if erro:
                     st.error(f"**Falha na Extração:** {erro}")
-                    st.text_area("Resposta bruta da IA que causou o erro:", resposta_bruta, height=200)
+                    st.text_area("Resposta bruta da IA:", resposta_bruta, height=200)
                 elif not dados:
-                     st.warning("A análise foi concluída, mas nenhuma visão de investimento foi encontrada no documento.")
+                     st.warning("Nenhuma visão de investimento foi encontrada no documento.")
                 else:
-                    st.success("Análise concluída com sucesso!")
-                    st.subheader("3. Resultados da Extração")
-                    
+                    st.success("Dados extraídos com sucesso pela IA!")
                     df_novos_dados = pd.DataFrame(dados)
                     df_novos_dados['data_extracao'] = datetime.date.today().strftime("%Y-%m-%d")
                     df_novos_dados['fonte_documento'] = uploaded_file.name
                     
-                    ordem_colunas = ['data_extracao', 'data_relatorio', 'nome_gestora', 'fonte_documento', 'pais_regiao', 'classe_ativo', 'subclasse_ativo', 'visao_sentimento', 'tese_principal']
-                    for col in ordem_colunas:
-                        if col not in df_novos_dados.columns:
-                            df_novos_dados[col] = ""
-                    df_novos_dados = df_novos_dados[ordem_colunas]
-                    
-                    st.dataframe(df_novos_dados)
-                    
-                    st.subheader("4. Adicionar ao Banco de Dados")
+                    # Preparar as novas linhas em formato CSV
                     output = StringIO()
                     df_novos_dados.to_csv(output, index=False, header=False)
                     csv_string = output.getvalue()
                     
-                    st.text_area(
-                        "Copie o texto abaixo e cole no final do seu arquivo `market_intelligence_db.csv` no GitHub:",
-                        csv_string,
-                        height=200
-                    )
+                    with st.spinner("Salvando dados no GitHub..."):
+                        sucesso, mensagem = update_csv_on_github(csv_string)
+                    
+                    if sucesso:
+                        st.success(mensagem)
+                        st.balloons()
+                        st.info("A aplicação irá recarregar para exibir os novos dados. Atualize a página se necessário.")
+                    else:
+                        st.error(f"**Falha ao salvar no GitHub:** {mensagem}")
