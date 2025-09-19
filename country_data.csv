@@ -1,0 +1,4 @@
+pais_regiao,country_score,pib_forecast,inflacao_forecast,taxa_juros_atual,bc_outlook
+Brasil,68,"2.1%","4.5%","10.50%","Manutenção da taxa com viés de queda no próximo trimestre."
+Estados Unidos,75,"1.8%","3.2%","5.50%","Pausa no ciclo de alta, monitorando dados de emprego."
+Europa,62,"0.9%","2.8%","4.50%","Possíveis cortes na taxa se a inflação continuar cedendo."
